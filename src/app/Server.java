@@ -4,11 +4,13 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.muoniumplayer.core.ncm.api.CloudMusicApi;
 import com.muoniumplayer.core.ncm.RequestUtil.RequestAnswer;
 import com.muoniumplayer.core.ncm.music.CloudMusic;
 import com.muoniumplayer.core.ncm.music.Quality;
 import com.muoniumplayer.core.ncm.music.dto.Music;
+import com.muoniumplayer.core.ncm.music.dto.Album;
 import com.muoniumplayer.core.utils.Tuple;
 import com.sun.net.httpserver.*;
 import top.fpsmaster.music.MusicSource;
@@ -49,6 +51,8 @@ public class Server {
         server.createContext("/api/charts", Server::handleCharts);
         server.createContext("/api/chart", Server::handleChartTracks);
         server.createContext("/api/lyric", Server::handleLyric);
+        server.createContext("/api/favorites", Server::handleFavorites);
+        server.createContext("/api/cover", Server::handleCover);
         server.createContext("/api/bg", Server::handleBg);
         server.createContext("/", Server::handleIndex);
         server.setExecutor(Executors.newFixedThreadPool(8));
@@ -97,6 +101,7 @@ public class Server {
                 o.addProperty("artist", m.getArtistsName());
                 o.addProperty("duration", m.getDuration());
                 o.addProperty("source", m.getSource() == null ? "" : m.getSource().name());
+                o.addProperty("cover", coverUrl(m));
                 arr.add(o);
             }
             sendJson(ex, 200, arr);
@@ -149,7 +154,17 @@ public class Server {
         o.addProperty("artist", m.getArtistsName());
         o.addProperty("duration", m.getDuration());
         o.addProperty("source", m.getSource() == null ? "" : m.getSource().name());
+        o.addProperty("cover", coverUrl(m));
         return o;
+    }
+
+    private static String coverUrl(Music m) {
+        String c = m.getExternalCoverUrl();
+        if (c == null || c.isEmpty()) {
+            Album al = m.getAlbum();
+            if (al != null) c = al.getPicUrl();
+        }
+        return c == null ? "" : c;
     }
 
     private static void handleCharts(HttpExchange ex) throws IOException {
@@ -221,6 +236,30 @@ public class Server {
         return null;
     }
 
+    private static Tuple<String, String> parseSongUrlAnswer(RequestAnswer ans) {
+        if (ans == null || ans.getStatus() != 200) return null;
+        JsonObject jo = ans.toJsonObject();
+        if (jo == null || !jo.has("data")) return null;
+        JsonArray data = jo.getAsJsonArray("data");
+        if (data == null || data.size() == 0) return null;
+        JsonObject o = data.get(0).getAsJsonObject();
+        if (o == null || !o.has("url") || o.get("url").isJsonNull()) return null;
+        String url = o.get("url").getAsString().trim();
+        if (url.isEmpty()) return null;
+        String type = o.has("type") && !o.get("type").isJsonNull() ? o.get("type").getAsString() : "mp3";
+        return new Tuple<>(url, type);
+    }
+
+    private static Tuple<String, String> resolveUrlById(long id) {
+        try {
+            String q = CloudMusic.quality == null ? "standard"
+                    : CloudMusic.quality.getQuality().toLowerCase(Locale.ROOT);
+            Tuple<String, String> t = parseSongUrlAnswer(CloudMusicApi.songUrlV1(id, q));
+            if (t != null) return t;
+            return parseSongUrlAnswer(CloudMusicApi.songUrlStandardMp3(id));
+        } catch (Throwable e) { return null; }
+    }
+
     private static final long CACHE_LIMIT = 300L * 1024 * 1024;
     private static Path cacheDir() { return dataDir.resolve("cache"); }
 
@@ -284,13 +323,12 @@ public class Server {
         Map<String, String> q = parseQuery(ex.getRequestURI().getQuery());
         long id = Long.parseLong(q.getOrDefault("id", "-1"));
         Music m = findById(id);
-        if (m == null) { sendJson(ex, 404, Map.of("error", "track not found")); return; }
         String qs = q.getOrDefault("quality", "");
         if (!qs.isEmpty()) {
             try { CloudMusic.quality = Quality.valueOf(qs); } catch (Exception ignore) {}
         }
         try {
-            Tuple<String, String> u = m.getPlayUrl();
+            Tuple<String, String> u = (m != null) ? m.getPlayUrl() : resolveUrlById(id);
             if (u == null || u.getA() == null) { sendJson(ex, 404, Map.of("error", "no url")); return; }
             String fmt = u.getB() == null ? "mp3" : u.getB();
             String contentType = contentTypeOf(fmt);
@@ -355,6 +393,82 @@ public class Server {
         ex.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
         ex.sendResponseHeaders(200, body.length);
         try (OutputStream os = ex.getResponseBody()) { os.write(body); }
+    }
+
+    private static Path favFile() { return dataDir.resolve("favorites.json"); }
+
+    private static JsonArray readFavorites() {
+        try {
+            if (!Files.exists(favFile())) return new JsonArray();
+            String s = Files.readString(favFile(), StandardCharsets.UTF_8).trim();
+            if (s.isEmpty()) return new JsonArray();
+            JsonElement e = JsonParser.parseString(s);
+            return e.isJsonArray() ? e.getAsJsonArray() : new JsonArray();
+        } catch (Exception e) { return new JsonArray(); }
+    }
+
+    private static void writeFavorites(JsonArray arr) throws IOException {
+        Files.writeString(favFile(), GSON.toJson(arr), StandardCharsets.UTF_8);
+    }
+
+    private static void handleFavorites(HttpExchange ex) throws IOException {
+        cors(ex);
+        if ("GET".equalsIgnoreCase(ex.getRequestMethod())) {
+            sendJson(ex, 200, readFavorites());
+            return;
+        }
+        if ("POST".equalsIgnoreCase(ex.getRequestMethod())) {
+            JsonObject body;
+            try (InputStream in = ex.getRequestBody()) {
+                body = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+            }
+            JsonArray kept = new JsonArray();
+            long id = body.has("id") ? body.get("id").getAsLong() : -1;
+            boolean fav = body.has("fav") && body.get("fav").getAsBoolean();
+            for (JsonElement e : readFavorites()) {
+                if (e.getAsJsonObject().get("id").getAsLong() != id) kept.add(e);
+            }
+            if (fav) {
+                JsonObject o = new JsonObject();
+                o.addProperty("id", id);
+                o.addProperty("name", body.has("name") ? body.get("name").getAsString() : "");
+                o.addProperty("artist", body.has("artist") ? body.get("artist").getAsString() : "");
+                o.addProperty("duration", body.has("duration") ? body.get("duration").getAsLong() : 0);
+                o.addProperty("source", body.has("source") ? body.get("source").getAsString() : "");
+                o.addProperty("cover", body.has("cover") ? body.get("cover").getAsString() : "");
+                kept.add(o);
+            }
+            writeFavorites(kept);
+            sendJson(ex, 200, kept);
+            return;
+        }
+        sendJson(ex, 405, Map.of("error", "method not allowed"));
+    }
+
+    private static void handleCover(HttpExchange ex) throws IOException {
+        cors(ex);
+        Map<String, String> q = parseQuery(ex.getRequestURI().getQuery());
+        String url = q.getOrDefault("url", "");
+        if (url.isEmpty()) { ex.sendResponseHeaders(404, -1); return; }
+        try {
+            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+            conn.setRequestProperty("Referer", "https://music.163.com/");
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(8000);
+            conn.connect();
+            int code = conn.getResponseCode();
+            if (code != 200) { sendJson(ex, code, Map.of("error", "cover " + code)); return; }
+            String mime = conn.getContentType();
+            if (mime == null || mime.isEmpty()) mime = "image/jpeg";
+            byte[] img;
+            try (InputStream in = conn.getInputStream()) { img = in.readAllBytes(); }
+            ex.getResponseHeaders().set("Content-Type", mime);
+            ex.sendResponseHeaders(200, img.length);
+            try (OutputStream os = ex.getResponseBody()) { os.write(img); }
+        } catch (Throwable t) {
+            sendJson(ex, 502, Map.of("error", String.valueOf(t)));
+        }
     }
 
     private static Path bgImage() { return dataDir.resolve("bg.dat"); }

@@ -141,8 +141,9 @@
   .cover{
     width:46px;height:46px;border-radius:12px;flex-shrink:0;
     background:linear-gradient(135deg,#33506e,#26384B);
-    display:flex;align-items:center;justify-content:center;
+    display:flex;align-items:center;justify-content:center;overflow:hidden;
   }
+  .cover img{width:100%;height:100%;object-fit:cover;display:none}
   .now .t{min-width:0}
   .now .tn{font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .now .ta{font-size:12px; color:var(--sub); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
@@ -175,6 +176,14 @@
     -webkit-appearance:none; width:13px;height:13px;border-radius:50%;background:var(--text);
   }
   .right{display:flex; align-items:center; justify-content:flex-end; gap:12px}
+  .fav-btn{background:none;border:none;cursor:pointer;color:var(--sub);display:flex;align-items:center;flex-shrink:0;padding:4px}
+  .fav-btn:hover{color:var(--accent-hover)}
+  .fav-btn.on{color:var(--accent)}
+  .fav-btn.on svg{fill:var(--accent)}
+  .row .fav{background:none;border:none;cursor:pointer;color:var(--sub);display:flex;align-items:center;opacity:0}
+  .row:hover .fav{opacity:1}
+  .row .fav.on{color:var(--accent);opacity:1}
+  .row .fav.on svg{fill:var(--accent)}
   #quality{
     background:rgba(32,48,68,.65); color:var(--text);
     border:1px solid rgba(145,168,194,.25); border-radius:10px;
@@ -199,6 +208,9 @@
 
       <div class="nav-group">排行榜</div>
       <div class="hot-wrap" id="chartWrap"></div>
+
+      <div class="nav-group">我的收藏</div>
+      <div class="hot-wrap"><div class="hot-tag" id="favTag">查看收藏</div></div>
 
       <div class="nav-group">外观</div>
       <button class="bg-btn" id="bgBtn">更换背景图</button>
@@ -225,12 +237,16 @@
   <footer class="dock">
     <div class="now">
       <div class="cover">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B7C6D8" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
+        <img id="nowCover" alt="" />
+        <svg id="nowCoverPh" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B7C6D8" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
       </div>
       <div class="t">
         <div class="tn" id="nowTitle">未在播放</div>
         <div class="ta" id="nowArtist">—</div>
       </div>
+      <button class="fav-btn" id="favBtn" title="收藏/取消收藏">
+        <svg id="favIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7.5-4.6-9.5-9A5.5 5.5 0 0 1 12 6.3 5.5 5.5 0 0 1 21.5 12c-2 4.4-9.5 9-9.5 9z"/></svg>
+      </button>
     </div>
 
     <div class="ctrl">
@@ -273,6 +289,7 @@
 const $ = id => document.getElementById(id);
 const listEl = $('list'), audio = $('audio');
 let tracks = [], cur = -1, seeking = false, hotWords = [], quality = "HIGHER";
+let favIds = new Set();
 let lyricLines = [], lyricActive = -1;
 
 /* ===== 背景图导入与持久化（后端文件 + localStorage 兜底） ===== */
@@ -362,6 +379,7 @@ async function loadChart(pid, name){
   }catch(e){ $('subtitle').textContent = "榜单加载失败："+e; }
 }
 
+const HEART='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7.5-4.6-9.5-9A5.5 5.5 0 0 1 12 6.3 5.5 5.5 0 0 1 21.5 12c-2 4.4-9.5 9-9.5 9z"/></svg>';
 function render(){
   listEl.innerHTML = "";
   tracks.forEach((t,i)=>{
@@ -369,13 +387,39 @@ function render(){
     row.className="row"+(i===cur?" active":"");
     row.innerHTML=`<div class="idx">${i+1}</div>
       <div class="meta"><div class="name"></div><div class="artist"></div></div>
-      <div class="act">播放</div>`;
+      <button class="fav${favIds.has(t.id)?" on":""}" title="收藏">${HEART}</button>`;
     row.querySelector(".name").textContent=t.name;
     row.querySelector(".artist").textContent=(t.artist||"")+"  ·  "+fmt(t.duration);
+    const fav=row.querySelector(".fav");
+    fav.onclick=(e)=>{ e.stopPropagation(); toggleFav(t, fav); };
     row.onclick=()=>playAt(i);
     listEl.appendChild(row);
   });
   if(!tracks.length) listEl.innerHTML='<div class="empty">没有找到相关歌曲</div>';
+}
+
+async function loadFavorites(){
+  try{
+    const r=await fetch("/api/favorites");
+    const arr=await r.json();
+    favIds=new Set(arr.map(x=>x.id));
+    return arr;
+  }catch(e){ return []; }
+}
+
+async function toggleFav(t){
+  const fav=!favIds.has(t.id);
+  if(fav) favIds.add(t.id); else favIds.delete(t.id);
+  syncFavUI();
+  try{
+    await fetch("/api/favorites",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({id:t.id,name:t.name,artist:t.artist,duration:t.duration,source:t.source,cover:t.cover,fav})});
+  }catch(e){ if(fav) favIds.delete(t.id); else favIds.add(t.id); syncFavUI(); }
+}
+
+function syncFavUI(){
+  $('favBtn').classList.toggle("on", cur>=0 && favIds.has(tracks[cur].id));
+  document.querySelectorAll(".row .fav").forEach((b,i)=>b.classList.toggle("on", tracks[i] && favIds.has(tracks[i].id)));
 }
 
 function playAt(i){
@@ -386,7 +430,12 @@ function playAt(i){
   audio.play().catch(()=>{});
   $('nowTitle').textContent=t.name;
   $('nowArtist').textContent=t.artist||"—";
+  const cv=$('nowCover'), ph=$('nowCoverPh');
+  cv.onerror=()=>{ cv.removeAttribute("src"); cv.style.display="none"; ph.style.display="block"; };
+  if(t.cover){ cv.src="/api/cover?url="+encodeURIComponent(t.cover); cv.style.display="block"; ph.style.display="none"; }
+  else { cv.removeAttribute("src"); cv.style.display="none"; ph.style.display="block"; }
   document.querySelectorAll(".row").forEach((r,k)=>r.classList.toggle("active",k===cur));
+  syncFavUI();
   loadLyric(t.id);
 }
 
@@ -479,6 +528,14 @@ $('playBtn').onclick=()=>{ if(cur<0){ if(tracks.length) playAt(0); return; }
 $('nextBtn').onclick=()=>playAt(cur+1);
 $('prevBtn').onclick=()=>playAt(cur-1);
 $('vol').oninput=e=>audio.volume=e.target.value/100;
+$('favBtn').onclick=()=>{ if(cur>=0) toggleFav(tracks[cur]); };
+$('favTag').onclick=async ()=>{
+  const arr=await loadFavorites();
+  tracks=arr; cur=-1;
+  $('title').textContent="我的收藏";
+  $('subtitle').textContent=arr.length? "共 "+arr.length+" 首，按顺序播放":"还没有收藏，点歌曲右侧心形收藏";
+  render(); syncFavUI();
+};
 $('quality').onchange=e=>{
   quality=e.target.value;
   if(cur>=0){
@@ -511,6 +568,7 @@ $('seek').addEventListener("mouseup",()=>{ seeking=false;
 
 loadHot();
 loadCharts();
+loadFavorites();
 </script>
 </body>
 </html>

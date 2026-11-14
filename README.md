@@ -45,12 +45,12 @@ muonium-standalone/
 - 背景图可在界面左侧「更换背景图」本地导入；图片保存在后端本地 `data/` 目录，重开界面、换浏览器都保留。
 - 播放进度条上方叠加**缓冲/下载进度**条，显示已缓存范围。
 - **歌词同步显示**：按时间轴逐行高亮、平滑滚动，含制作人员（作词/作曲等）行与翻译；点击任意一句可跳转到该句时间。
+- **收藏歌单**：点歌曲右侧或播放栏的心形即可收藏/取消，收藏列表保存在后端本地 `data/favorites.json`；左侧「查看收藏」打开收藏队列，按顺序连播。
+- **专辑封面**：播放栏左侧显示当前歌曲封面，封面图经后端代理转发（带浏览器标识，避免防盗链）。
 - 音频经本地后端代理出流，支持拖动进度（Range）；整曲首次播放后落盘到 `data/cache/`，重复播放直接读本地，缓存上限 300MB 自动清理最旧。
 
 ## 已知限制（后续可补）
 
-- 本地收藏歌单持久化尚未接入。
-- 封面图未显示。
 - 未登录，无法拉取个人歌单/收藏；部分 VIP 曲目无播放链接；无损/HiRes 需登录会员。
 
 ## 技术说明
@@ -61,6 +61,8 @@ muonium-standalone/
   - `GET /api/charts` 排行榜列表
   - `GET /api/chart?pid=` 某榜单曲目
   - `GET /api/lyric?id=` 歌词（原文 + 翻译 LRC）
+  - `GET/POST /api/favorites` 收藏列表（POST 切换收藏，body 含 id/name/artist/duration/source/cover/fav）
+  - `GET /api/cover?url=` 封面图代理转发
   - `GET /api/stream?id=&quality=` 音频代理流（quality: STANDARD/HIGHER/EXHIGH）
   - `GET/POST /api/bg` 读取/保存背景图（存 `data/` 目录）
 - 播放链路走纯 JavaSound，不依赖 LWJGL/OpenAL 原生库，便于跨平台。
