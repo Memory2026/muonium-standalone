@@ -1,0 +1,21 @@
+<component name="libraryTable">
+  <library name="kotlin">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/libs/kotlin/kotlin-stdlib-jdk8-2.4.21.jar!/" />
+      <root url="jar://$PROJECT_DIR$/libs/kotlin/kotlinx-serialization-core-jvm-1.11.0.jar!/" />
+      <root url="jar://$PROJECT_DIR$/libs/kotlin/kotlinx-coroutines-core-jvm-1.11.0.jar!/" />
+      <root url="jar://$PROJECT_DIR$/libs/kotlin/kotlin-stdlib-2.4.21.jar!/" />
+      <root url="jar://$PROJECT_DIR$/libs/kotlin/kotlinx-io-core-jvm-0.9.1.jar!/" />
+      <root url="jar://$PROJECT_DIR$/libs/kotlin/kotlinx-datetime-jvm-0.8.0.jar!/" />
+      <root url="jar://$PROJECT_DIR$/libs/kotlin/kotlinx-serialization-cbor-jvm-1.11.0.jar!/" />
+      <root url="jar://$PROJECT_DIR$/libs/kotlin/kotlinx-coroutines-jdk8-1.11.0.jar!/" />
+      <root url="jar://$PROJECT_DIR$/libs/kotlin/kotlin-stdlib-jdk7-2.4.21.jar!/" />
+      <root url="jar://$PROJECT_DIR$/libs/kotlin/kotlin-reflect-2.4.21.jar!/" />
+      <root url="jar://$PROJECT_DIR$/libs/kotlin/atomicfu-jvm-0.33.0.jar!/" />
+      <root url="jar://$PROJECT_DIR$/libs/kotlin/kotlinx-io-bytestring-jvm-0.9.1.jar!/" />
+      <root url="jar://$PROJECT_DIR$/libs/kotlin/kotlinx-serialization-json-jvm-1.11.0.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
