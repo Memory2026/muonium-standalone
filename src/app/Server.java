@@ -48,6 +48,7 @@ public class Server {
         server.createContext("/api/hot", Server::handleHot);
         server.createContext("/api/charts", Server::handleCharts);
         server.createContext("/api/chart", Server::handleChartTracks);
+        server.createContext("/api/lyric", Server::handleLyric);
         server.createContext("/api/bg", Server::handleBg);
         server.createContext("/", Server::handleIndex);
         server.setExecutor(Executors.newFixedThreadPool(8));
@@ -188,6 +189,26 @@ public class Server {
             }
             synchronized (lock) { lastResults = list; }
             sendJson(ex, 200, arr);
+        } catch (Throwable t) {
+            sendJson(ex, 500, Map.of("error", String.valueOf(t)));
+        }
+    }
+
+    private static void handleLyric(HttpExchange ex) throws IOException {
+        Map<String, String> q = parseQuery(ex.getRequestURI().getQuery());
+        long id;
+        try { id = Long.parseLong(q.getOrDefault("id", "-1")); } catch (Exception e) { sendJson(ex, 400, Map.of("error", "bad id")); return; }
+        try {
+            RequestAnswer ans = CloudMusicApi.lyricNew(id);
+            JsonObject jo = ans == null ? null : ans.toJsonObject();
+            String lrc = "", tly = "";
+            if (jo != null) {
+                JsonObject l = jo.getAsJsonObject("lrc");
+                if (l != null && l.has("lyric")) lrc = l.get("lyric").getAsString();
+                JsonObject t = jo.getAsJsonObject("tlyric");
+                if (t != null && t.has("lyric")) tly = t.get("lyric").getAsString();
+            }
+            sendJson(ex, 200, Map.of("lyric", lrc, "tlyric", tly));
         } catch (Throwable t) {
             sendJson(ex, 500, Map.of("error", String.valueOf(t)));
         }

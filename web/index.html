@@ -48,7 +48,10 @@
     width:236px; flex-shrink:0; padding:18px 14px;
     display:flex; flex-direction:column; gap:6px;
     border-right:1px solid rgba(145,168,194,.14);
+    overflow-y:auto;
   }
+  .side::-webkit-scrollbar{width:8px}
+  .side::-webkit-scrollbar-thumb{background:rgba(145,168,194,.25);border-radius:8px}
   .search-box{
     display:flex; align-items:center; gap:8px;
     background:rgba(32,48,68,.65); border:1px solid rgba(145,168,194,.18);
@@ -108,6 +111,22 @@
   .row .act{font-size:12.5px; color:var(--sub); opacity:0}
   .row:hover .act{opacity:1}
   .empty{margin-top:40px; text-align:center; color:var(--sub); font-size:14px}
+
+  /* ===== 歌词栏 ===== */
+  .lyric{
+    width:300px; flex-shrink:0; padding:22px 18px; overflow-y:auto;
+    border-left:1px solid rgba(145,168,194,.14);
+    display:flex; flex-direction:column; gap:14px;
+  }
+  .lyric::-webkit-scrollbar{width:8px}
+  .lyric::-webkit-scrollbar-thumb{background:rgba(145,168,194,.25);border-radius:8px}
+  .lr-line{text-align:center; color:var(--sub); font-size:14px; line-height:1.7; padding:2px 0; transition:color .2s; cursor:pointer}
+  .lr-line:hover{color:var(--accent-hover)}
+  .lr-line .tr{display:block; font-size:12px; opacity:.7; margin-top:2px}
+  .lr-line.active{color:var(--text); font-weight:600}
+  .lr-line.active .tr{opacity:.9}
+  .lr-empty{margin-top:40px; text-align:center; color:var(--sub); font-size:13px}
+  .lr-credit{text-align:center; color:var(--sub); font-size:12px; line-height:1.7; opacity:.8}
 
   /* ===== 底部播放栏 ===== */
   .dock{
@@ -197,6 +216,9 @@
       <div class="sub" id="subtitle">正在加载…</div>
       <div class="track-list" id="list"></div>
     </section>
+
+    <!-- 歌词栏 -->
+    <section class="lyric" id="lyric"><div class="lr-empty">暂无歌词</div></section>
   </div>
 
   <!-- 底部播放栏 -->
@@ -251,6 +273,7 @@
 const $ = id => document.getElementById(id);
 const listEl = $('list'), audio = $('audio');
 let tracks = [], cur = -1, seeking = false, hotWords = [], quality = "HIGHER";
+let lyricLines = [], lyricActive = -1;
 
 /* ===== 背景图导入与持久化（后端文件 + localStorage 兜底） ===== */
 const bgLayer = $('bg-layer'), bgFile = $('bgFile');
@@ -364,6 +387,90 @@ function playAt(i){
   $('nowTitle').textContent=t.name;
   $('nowArtist').textContent=t.artist||"—";
   document.querySelectorAll(".row").forEach((r,k)=>r.classList.toggle("active",k===cur));
+  loadLyric(t.id);
+}
+
+/* ===== 歌词 ===== */
+function parseLRC(str){
+  const out=[];
+  if(!str) return out;
+  str.split(/\r?\n/).forEach(line=>{
+    const tags=[...line.matchAll(/\[(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?\]/g)];
+    const text=line.replace(/\[(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?\]/g,"").trim();
+    tags.forEach(m=>{
+      const t=parseInt(m[1])*60+parseInt(m[2])+(m[3]?parseInt(m[3].padEnd(3,"0"))/1000:0);
+      out.push({t,text});
+    });
+  });
+  out.sort((a,b)=>a.t-b.t);
+  return out;
+}
+
+function parseCredits(str){
+  const out=[];
+  if(!str) return out;
+  str.split(/\r?\n/).forEach(line=>{
+    const s=line.trim();
+    if(!s.startsWith("{")) return;
+    try{
+      const o=JSON.parse(s);
+      if(o.c && Array.isArray(o.c)){
+        const text=o.c.map(x=>x.tx||"").join("").trim();
+        if(text){
+          const t=(typeof o.t==="number") ? o.t/1000 : out.length*1.0;
+          out.push({t, text, credit:true});
+        }
+      }
+    }catch(e){}
+  });
+  return out;
+}
+
+async function loadLyric(id){
+  lyricLines=[]; lyricActive=-1;
+  const box=$('lyric'); box.innerHTML='<div class="lr-empty">歌词加载中…</div>'; box.scrollTop=0;
+  try{
+    const r=await fetch("/api/lyric?id="+id);
+    const data=await r.json();
+    const main=parseLRC(data.lyric);
+    const trans=parseLRC(data.tlyric);
+    const creditRows=parseCredits(data.lyric);
+    main.forEach(l=>{
+      const tr=trans.find(x=>Math.abs(x.t-l.t)<0.5);
+      l.tr=tr?tr.text:"";
+    });
+    lyricLines=creditRows.concat(main).sort((a,b)=>a.t-b.t);
+    renderLyric();
+  }catch(e){ box.innerHTML='<div class="lr-empty">歌词加载失败</div>'; }
+}
+
+function renderLyric(){
+  const box=$('lyric'); box.innerHTML="";
+  if(!lyricLines.length){ box.innerHTML='<div class="lr-empty">暂无歌词</div>'; return; }
+  lyricLines.forEach((l,i)=>{
+    const d=document.createElement("div");
+    d.className="lr-line"+(l.credit?" lr-credit":"");
+    d.id="lr-"+i;
+    const main=document.createElement("span"); main.textContent=l.text;
+    d.appendChild(main);
+    if(l.tr){ const tr=document.createElement("span"); tr.className="tr"; tr.textContent=l.tr; d.appendChild(tr); }
+    d.onclick=()=>{ if(audio.duration){ audio.currentTime=l.t; updateLyric(); } };
+    box.appendChild(d);
+  });
+}
+
+function updateLyric(){
+  if(!lyricLines.length||!audio.duration) return;
+  const ct=audio.currentTime;
+  let idx=-1;
+  for(let i=0;i<lyricLines.length;i++){ if(lyricLines[i].t<=ct) idx=i; else break; }
+  if(idx===lyricActive) return;
+  lyricActive=idx;
+  document.querySelectorAll(".lr-line").forEach((el,i)=>el.classList.toggle("active",i===idx));
+  if(idx>=0){
+    const el=$("lr-"+idx), box=$('lyric');
+    if(el) box.scrollTo({ top: el.offsetTop-box.clientHeight/2+el.clientHeight/2, behavior:"smooth" });
+  }
 }
 
 $('searchInput').addEventListener("keydown",e=>{ if(e.key==="Enter") doSearch(); });
@@ -396,6 +503,7 @@ audio.addEventListener("timeupdate",()=>{
   if(seeking||!audio.duration) return;
   $('seek').value=Math.round(audio.currentTime/audio.duration*1000);
   $('curTime').textContent=fmt(audio.currentTime*1000);
+  updateLyric();
 });
 $('seek').addEventListener("mousedown",()=>seeking=true);
 $('seek').addEventListener("mouseup",()=>{ seeking=false;
