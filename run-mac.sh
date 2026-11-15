@@ -11,9 +11,11 @@ for j in "$DIR"/libs/*.jar "$DIR"/libs/inline/*.jar "$DIR"/libs/kotlin/*.jar; do
   CP="$CP:$j"
 done
 
-# ---- 定位 java：PATH -> JAVA_HOME -> java_home 工具 -> 标准安装目录扫描 ----
+# ---- 定位 java：bundled runtime -> PATH -> JAVA_HOME -> java_home 工具 -> 标准安装目录扫描 ----
 JAVA=""
-if command -v java >/dev/null 2>&1; then
+if [ -x "$DIR/runtime/Contents/Home/bin/java" ]; then
+  JAVA="$DIR/runtime/Contents/Home/bin/java"
+elif command -v java >/dev/null 2>&1; then
   JAVA=java
 elif [ -n "$JAVA_HOME" ] && [ -x "$JAVA_HOME/bin/java" ]; then
   JAVA="$JAVA_HOME/bin/java"

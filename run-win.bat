@@ -8,9 +8,10 @@ for %%f in ("%DIR%libs\inline\*.jar") do set "CP=!CP!;%%f"
 for %%f in ("%DIR%libs\kotlin\*.jar") do set "CP=!CP!;%%f"
 set "WEB=%DIR%web"
 
-rem ---- locate java: PATH -> JAVA_HOME -> common install dirs ----
+rem ---- locate java: bundled runtime -> PATH -> JAVA_HOME -> common install dirs ----
 set "JAVA="
-where java >nul 2>nul && set "JAVA=java"
+if exist "%DIR%runtime\bin\java.exe" set "JAVA=%DIR%runtime\bin\java.exe"
+if not defined JAVA where java >nul 2>nul && set "JAVA=java"
 if not defined JAVA if defined JAVA_HOME if exist "%JAVA_HOME%\bin\java.exe" set "JAVA=%JAVA_HOME%\bin\java.exe"
 if not defined JAVA if exist "%USERPROFILE%\Desktop\MSL\Java\21\bin\java.exe" set "JAVA=%USERPROFILE%\Desktop\MSL\Java\21\bin\java.exe"
 if not defined JAVA (
